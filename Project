@@ -1,4 +1,3 @@
-
 import random
 import streamlit as st
 import altair as alt # Used for the trend chart, it comes with Streamlit
@@ -150,6 +149,8 @@ focus_messages = { # Messages for the result of the daily focus test
 
 last_warning = {"Sleep Hours": -5, "Exercise Time": -5} # The day of the last warning for each habit
 
+morale_labels = {1: "Very low", 2: "Low", 3: "Medium", 4: "Good", 5: "Very good"} # The morale scale of our team
+
 
 
 for i in expected_limits:
@@ -293,7 +294,7 @@ def message(day,limits):
 
     if (body_caution >= 2 or body_critical >= 1) and data["State of Morale"] <= 2:
         to_Earth.append("Body values are not normal ({} caution, {} critical) and morale is {}/5. The astronaut is probably sick.".format(
-                body_caution, body_critical, data["State of Morale"]))
+            body_caution, body_critical, data["State of Morale"]))
 
     return {"Astronaut": to_Astronaut, "Earth": to_Earth}
 
@@ -361,7 +362,7 @@ for i in result:
     with columns[k % 3]:
         if i == "State of Morale": # Morale has no limits, so its value is shown directly
             st.metric(i, "{} / 5".format(result[i]))
-            st.info("Survey answer")
+            st.info(morale_labels[result[i]])
         else:
             st.metric(i, data[i])
             if result[i] == "Normal":
