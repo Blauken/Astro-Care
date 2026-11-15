@@ -1,1 +1,410 @@
 
+import random
+import streamlit as st
+import altair as alt # Used for the trend chart, it comes with Streamlit
+
+random.seed(42) # The data stays the same every time the page is refreshed
+
+# SOURCES THAT ARE NEEDED FOR THE PROGRAM
+
+common_limits = { # These limits are the same in every environment
+    "Resting Heart Rate": (60, 100, 50, 110), # Earth values are used.
+    "Respiratory Rate": (12, 20, 10, 24), # Earth values are used.
+    "Reaction Time": (400, 850, 300, 1000), # Milliseconds. Daily 30 second color-word (Stroop) focus test. Our own estimate.
+    "Test Accuracy": (90, 100, 80, 100), # Percent of correct answers in the focus test. Our own estimate.
+}
+
+expected_limits = { # Index 0 and 1 is normal state, and index 2 and 3 is caution state
+    "Mars": {
+        "Blood Oxygen Rate": (93, 100, 89, 100), # With alveolar gas equation.
+        "Sleep Hours": (5.5, 9.0, 4.5, 10.0), # Limits are wide to prevent alarm fatigue.
+        "Body Temperature": (36.8, 37.8, 36.3, 38.3), # Our own theory.
+        "Exercise Time": (90, 150, 60, 180), # Minutes. Our own estimate: Mars gravity gives some load, but animal studies suggest it is not enough (Mortreux, 2019).
+        "Water Intake": (3.5, 5.0, 3.0, 6.0), # Liters. Our own estimate.
+    },
+    "ISS": {
+        "Blood Oxygen Rate": (95, 100, 91, 100), # ISS cabin air is the same as sea level on Earth.
+        "Sleep Hours": (5.5, 7.5, 4.5, 10.0),
+        "Body Temperature": (37.5, 38.5, 37.0, 39.0), # Plus 1 degree compared to Earth (Stahn, 2017).
+        "Exercise Time": (120, 150, 90, 180), # Minutes.
+        "Water Intake": (3.0, 4.5, 2.5, 5.5), # Liters. Our own theory.
+    }
+}
+
+
+
+states = { # Each value is (mean, standard deviation, decimal places)
+    "Mars": {
+        "normal": {
+            "Resting Heart Rate": (70, 5, 0),
+            "Blood Oxygen Rate": (95.5, 0.8, 1), # A little lower because of habitat air.
+            "Sleep Hours": (6.25, 0.5, 1), # Our own estimate.
+            "Respiratory Rate": (16, 2, 0),
+            "Body Temperature": (37.3, 0.2, 1), # Our own estimate.
+            "Exercise Time": (105, 10, 0), # Minutes. Our own estimate.
+            "Water Intake": (3.8, 0.3, 1),
+            "Reaction Time": (700, 60, 0), # Milliseconds
+            "Test Accuracy": (96, 2, 0), # Percent
+        },
+        "sickness": {
+            "Resting Heart Rate": (95, 5, 0),
+            "Blood Oxygen Rate": (92, 1, 1),
+            "Sleep Hours": (5.0, 0.4, 1),
+            "Respiratory Rate": (23, 2, 0),
+            "Body Temperature": (38.1, 0.2, 1),
+            "Exercise Time": (70, 15, 0), # A sick astronaut exercises less.
+            "Water Intake": (3.2, 0.3, 1), # A sick astronaut drinks less.
+            "Reaction Time": (900, 80, 0), # Milliseconds
+            "Test Accuracy": (88, 4, 0), # Percent
+        },
+        "healing": {
+            "Resting Heart Rate": (80, 5, 0), # Still a little high.
+            "Blood Oxygen Rate": (95, 0.8, 1), # Almost back to normal.
+            "Sleep Hours": (6.75, 0.5, 1), # The body sleeps more to recover.
+            "Respiratory Rate": (18, 2, 0),
+            "Body Temperature": (37.5, 0.2, 1), # A little above normal.
+            "Exercise Time": (85, 10, 0), # Exercise slowly comes back.
+            "Water Intake": (3.6, 0.3, 1),
+            "Reaction Time": (780, 60, 0), # Milliseconds
+            "Test Accuracy": (93, 3, 0), # Percent
+        },
+    },
+    "ISS": {
+        "normal": {
+            "Resting Heart Rate": (70, 5, 0),
+            "Blood Oxygen Rate": (97, 0.8, 1),
+            "Sleep Hours": (6.0, 0.5, 1), # Barger, 2014.
+            "Respiratory Rate": (16, 2, 0),
+            "Body Temperature": (38.0, 0.2, 1), # Stahn, 2017.
+            "Exercise Time": (135, 10, 0), # Minutes.
+            "Water Intake": (3.4, 0.3, 1),
+            "Reaction Time": (700, 60, 0), # Milliseconds
+            "Test Accuracy": (96, 2, 0), # Percent
+        },
+        "sickness": {
+            "Resting Heart Rate": (95, 5, 0),
+            "Blood Oxygen Rate": (94, 1, 1),
+            "Sleep Hours": (4.8, 0.4, 1),
+            "Respiratory Rate": (23, 2, 0),
+            "Body Temperature": (38.8, 0.2, 1),
+            "Exercise Time": (95, 15, 0), # A sick astronaut exercises less.
+            "Water Intake": (2.8, 0.3, 1),
+            "Reaction Time": (900, 80, 0), # Milliseconds
+            "Test Accuracy": (88, 4, 0), # Percent
+        },
+        "healing": {
+            "Resting Heart Rate": (80, 5, 0),
+            "Blood Oxygen Rate": (96.5, 0.8, 1),
+            "Sleep Hours": (6.5, 0.5, 1),
+            "Respiratory Rate": (18, 2, 0),
+            "Body Temperature": (38.2, 0.2, 1),
+            "Exercise Time": (115, 10, 0), # Exercise slowly comes back.
+            "Water Intake": (3.2, 0.3, 1),
+            "Reaction Time": (780, 60, 0), # Milliseconds
+            "Test Accuracy": (93, 3, 0), # Percent
+        },
+    },
+}
+
+morale_phases = { # (first day, last day, mean morale). Our own estimate based on mission phases.
+    "Departure": (1, 3, 3), # Stress of leaving family, excitement of going to space
+    "Journey to Mars": (4, 15, 4), # Excitement and team bonds, but long isolation
+    "Arrival on Mars": (16, 18, 5), # Reaching a new planet, being part of history
+    "Research on Mars": (19, 45, 2), # Hard work, loneliness, monotony and unexpected problems
+    "Return Journey": (46, 57, 4), # Pride and the excitement of going home, but tiredness
+    "Approach to Earth": (58, 60, 5), # Seeing Earth and family again
+}
+
+habits = ["Sleep Hours", "Exercise Time"]
+body_values = ["Resting Heart Rate", "Blood Oxygen Rate", "Respiratory Rate", "Body Temperature"]
+
+advice = { # Advice for habits, when the value was too low or too high in the last 5 days. Example advice, not medical advice.
+    "Sleep Hours": {
+        "low": "You have not been sleeping enough for the last few days. Try to go to bed earlier and avoid screens before sleep.",
+        "high": "You have been sleeping much more than usual for the last few days. Try to keep a regular routine and get some light activity.",
+    },
+    "Exercise Time": {
+        "low": "You have been exercising less than you need for the last few days. Try a short session today to protect your bones and muscles.",
+        "high": "You have been exercising more than usual for the last few days. Make sure you rest and drink enough water.",
+    },
+}
+
+focus_messages = { # Messages for the result of the daily focus test
+    "good": {
+        "Astronaut": "Your focus is sharp today.",
+        "Earth": "Focus test normal.",
+    },
+    "rushing": {
+        "Astronaut": "You answered fast but made some mistakes. Slow down and double check important tasks today.",
+        "Earth": "Focus test: fast responses, low accuracy.",
+    },
+    "tired": {
+        "Astronaut": "You were accurate but slower than usual. Take a short break before complex tasks.",
+        "Earth": "Focus test: normal accuracy, slow responses.",
+    },
+    "fatigue": {
+        "Astronaut": "Your focus is low today. Rest for 1 hour and repeat the test. Ask a crew member to check risky tasks.",
+        "Earth": "Focus test: slow responses and low accuracy. Possible fatigue or illness.",
+    },
+}
+
+last_warning = {"Sleep Hours": -5, "Exercise Time": -5} # The day of the last warning for each habit
+
+
+
+for i in expected_limits:
+    expected_limits[i].update(common_limits)
+
+All_Days = []
+All_Days_Controlled = []
+All_Days_Focus = []
+All_Days_Messages = []
+Messages_Sent = {
+    "Earth" : [],
+    "Astronaut" : []
+}
+
+# FUNCTIONS
+
+def create_morale(day, state):
+    for i in morale_phases:
+        first, last, mean = morale_phases[i]
+
+        if first <= day <= last: # The phase of this day is found
+            if state == "sickness":
+                mean = mean - 1.5
+            elif state == "healing":
+                mean = mean - 0.5
+
+            value = round(random.gauss(mean, 0.5))
+            if value < 1:
+                value = 1
+            elif value > 5:
+                value = 5
+            return value
+
+def create(environment, state, day):
+    s_day = {"Environment": environment}
+    for i in states[environment][state]:
+        mean, sd, digits = states[environment][state][i]
+        value = random.gauss(mean, sd)
+        if i == "Test Accuracy" and value > 100:
+            value = 100 # Accuracy cannot be more than 100 percent
+        if digits == 0:
+            s_day[i] = round(value)
+        else:
+            s_day[i] = round(value, digits)
+
+    s_day["State of Morale"] = create_morale(day, state)
+    return s_day
+
+
+
+def control(day,limits):
+    result = {}
+    caution_count = 0
+    critical_count = 0
+    env_limits = limits[day["Environment"]]
+
+    for i in env_limits:
+        n_low, n_high, c_low, c_high = env_limits[i]
+        value = day[i]
+
+        if i == "Exercise Time" and day["Surface Walk"]:
+            result[i] = "Normal" # A surface walk is hard physical work, so exercise is not checked
+        elif n_low <= value <= n_high:
+            result[i] = "Normal"
+        elif c_low <= value <= c_high:
+            result[i] = "Caution"
+            caution_count += 1
+        else:
+            result[i] = "Critical"
+            critical_count += 1
+
+    result["State of Morale"] = day["State of Morale"]
+    result["Counts"] = [caution_count, critical_count]
+    return result
+
+
+
+def focus_pattern(result): # The two focus test results are read together
+    speed = result["Reaction Time"]
+    accuracy = result["Test Accuracy"]
+
+    if speed == "Normal" and accuracy == "Normal":
+        return "good"
+    elif speed == "Normal" and accuracy != "Normal":
+        return "rushing"
+    elif speed != "Normal" and accuracy == "Normal":
+        return "tired"
+    else:
+        return "fatigue"
+
+
+
+def message(day,limits):
+    to_Astronaut = []
+    to_Earth = []
+    data = All_Days[day - 1]  # The values of this day
+    result = All_Days_Controlled[day - 1]  # The results of this day
+
+    # Habits
+    if day >= 5: # There must be 5 days of data
+        for i in habits:
+            score = 0
+            low = 0
+            high = 0
+            for j in range(day - 5, day): # The last 5 days
+                status = All_Days_Controlled[j][i]
+                if status == "Caution":
+                    score += 1
+                elif status == "Critical":
+                    score += 2
+
+                if status != "Normal": # Was the value too low or too high?
+                    n_low = limits[All_Days[j]["Environment"]][i][0]
+                    if All_Days[j][i] < n_low:
+                        low += 1
+                    else:
+                        high += 1
+
+            if score >= 3 and day - last_warning[i] >= 5: # Wait 5 days after a warning
+                if low >= high:
+                    direction = "low"
+                else:
+                    direction = "high"
+                to_Astronaut.append(advice[i][direction])
+                last_warning[i] = day
+
+    # Focus test
+    pattern = All_Days_Focus[day - 1]
+    to_Astronaut.append(focus_messages[pattern]["Astronaut"])
+    if pattern == "fatigue": # Only a serious focus problem is sent to Earth
+        to_Earth.append("DAY {} | {}".format(day, focus_messages[pattern]["Earth"]))
+
+    # Body values and morale evaluation
+    body_caution = 0
+    body_critical = 0
+    for i in body_values:
+        if result[i] == "Caution":
+            body_caution += 1
+        elif result[i] == "Critical":
+            body_critical += 1
+
+    if (body_caution >= 2 or body_critical >= 1) and data["State of Morale"] <= 2:
+        to_Earth.append("Body values are not normal ({} caution, {} critical) and morale is {}/5. The astronaut is probably sick.".format(
+                body_caution, body_critical, data["State of Morale"]))
+
+    return {"Astronaut": to_Astronaut, "Earth": to_Earth}
+
+
+# PROGRAM
+
+for day in range(1, 61): # Mission is scaled to 60 days for better understanding purposes.
+    # Where is the astronaut?
+    if day <= 15 or day >= 46:
+        environment = "ISS"
+    else:
+        environment = "Mars"
+
+    # How is the astronaut?
+    if 12 <= day <= 17:
+        state = "sickness"
+    elif 18 <= day <= 21:
+        state = "healing"
+    else:
+        state = "normal"
+
+    # Is there a surface walk today?
+    if environment == "Mars" and state == "normal" and day % 3 == 0:
+        surface_walk = True # Every 3rd day on Mars and only when the astronaut is healthy
+    else:
+        surface_walk = False
+
+    s_day = create(environment, state, day)
+    s_day["Surface Walk"] = surface_walk
+    if surface_walk:
+        s_day["Exercise Time"] = 0 # The astronaut is tired for a normal exercise session after a surface walk
+    All_Days.append(s_day)
+
+for i in range(len(All_Days)):
+    result = control(All_Days[i], expected_limits)
+    All_Days_Controlled.append(result)
+    All_Days_Focus.append(focus_pattern(result))
+    All_Days_Messages.append(message(i + 1, expected_limits))
+
+# INTERFACE
+
+st.title("Astronaut Health Monitor")
+
+day = st.slider("Select a day", 1, 60) # The day that the user selects
+data = All_Days[day - 1] # Lists start from 0 but days start from 1
+result = All_Days_Controlled[day - 1]
+messages_today = All_Days_Messages[day - 1]
+
+# The title of the day
+if data["Surface Walk"]:
+    st.subheader("Day {} - {} - Surface walk day".format(day, data["Environment"]))
+else:
+    st.subheader("Day {} - {}".format(day, data["Environment"]))
+
+caution_count, critical_count = result["Counts"]
+st.write("Caution: {} | Critical: {}".format(caution_count, critical_count))
+
+# The values of the day and their results, in 3 columns
+columns = st.columns(3)
+k = 0 # Which column the next value goes to
+for i in result:
+    if i == "Counts":
+        continue # Counts is not a health value
+
+    with columns[k % 3]:
+        if i == "State of Morale": # Morale has no limits, so its value is shown directly
+            st.metric(i, "{} / 5".format(result[i]))
+            st.info("Survey answer")
+        else:
+            st.metric(i, data[i])
+            if result[i] == "Normal":
+                st.success("Normal")
+            elif result[i] == "Caution":
+                st.warning("Caution")
+            else:
+                st.error("Critical")
+    k += 1
+
+# The messages of the day
+left, right = st.columns(2)
+
+with left:
+    st.subheader("Messages to the astronaut")
+    if len(messages_today["Astronaut"]) == 0:
+        st.write("No message today.")
+    for i in messages_today["Astronaut"]:
+        st.info(i)
+
+with right:
+    st.subheader("Messages to Earth")
+    if len(messages_today["Earth"]) == 0:
+        st.write("No message was sent to Earth today.")
+    for i in messages_today["Earth"]:
+        st.error(i)
+
+# The trend of the mission
+st.subheader("Mission trend")
+
+days = list(range(1, len(All_Days) + 1)) # Day numbers come from the order of the list
+cautions = [i["Counts"][0] for i in All_Days_Controlled]
+criticals = [i["Counts"][1] for i in All_Days_Controlled]
+st.write("Number of warnings on each day")
+st.bar_chart({"Day": days, "Caution": cautions, "Critical": criticals}, x="Day", y=["Caution", "Critical"], color=["#EF9F27", "#E24B4A"])
+
+chosen = st.selectbox("Select a value", list(data.keys())[1:-1]) # Environment and Surface Walk are not values
+rows = []
+for i in range(len(All_Days)):
+    rows.append({"Day": i + 1, "Value": All_Days[i][chosen]})
+
+chart = alt.Chart(alt.Data(values=rows)).mark_line(point=True).encode(
+    x=alt.X("Day:Q", title="Day"),
+    y=alt.Y("Value:Q", title=chosen, scale=alt.Scale(zero=False)), # The axis does not start from 0, so changes are visible
+)
+st.altair_chart(chart, use_container_width=True)
